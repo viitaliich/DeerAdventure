@@ -104,6 +104,7 @@ struct ContentView: View {
     @State private var selectedMonth: MonthSelection?
     @State private var showMonthDetail = false
     @State private var launchWeekOfYear: Int?
+    @State private var showGenesisGame = false
 
     private var currentYear: Int { Calendar.current.component(.year, from: Date()) }
     private var currentMonth: Int { Calendar.current.component(.month, from: Date()) }
@@ -131,6 +132,9 @@ struct ContentView: View {
             }
         }
         .animation(.easeInOut(duration: 0.22), value: showMonthDetail)
+        .fullScreenCover(isPresented: $showGenesisGame) {
+            GenesisGameView()
+        }
         .onAppear {
             openCurrentWeekOnLaunch()
         }
@@ -273,12 +277,19 @@ struct ContentView: View {
 
     private var bottomBar: some View {
         BottomLeftButtonContainer(addBackgroundStrip: false) {
-            BottomPillButton(title: "Today", systemImage: nil, action: openCurrentWeekFromToday)
+            HStack(spacing: 10) {
+                BottomPillButton(title: "Today", systemImage: nil, action: openCurrentWeekFromToday)
+                BottomPillButton(title: "Genesis", systemImage: "gamecontroller", action: openGenesisGame)
+            }
         }
     }
 
     private func openCurrentWeekFromToday() {
         openCurrentWeekOnLaunch()
+    }
+
+    private func openGenesisGame() {
+        showGenesisGame = true
     }
 }
 
