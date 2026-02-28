@@ -105,6 +105,7 @@ struct ContentView: View {
     @State private var showMonthDetail = false
     @State private var launchWeekOfYear: Int?
     @State private var showGenesisGame = false
+    @State private var showHelpPopup = false
 
     private var currentYear: Int { Calendar.current.component(.year, from: Date()) }
     private var currentMonth: Int { Calendar.current.component(.month, from: Date()) }
@@ -134,6 +135,12 @@ struct ContentView: View {
         .animation(.easeInOut(duration: 0.22), value: showMonthDetail)
         .fullScreenCover(isPresented: $showGenesisGame) {
             GenesisGameView()
+        }
+        .sheet(isPresented: $showHelpPopup) {
+            HelpPopupView()
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+                .presentationBackground(.ultraThinMaterial)
         }
         .onAppear {
             openCurrentWeekOnLaunch()
@@ -276,11 +283,15 @@ struct ContentView: View {
     }
 
     private var bottomBar: some View {
-        BottomLeftButtonContainer(addBackgroundStrip: false) {
-            HStack(spacing: 10) {
+        BottomLeftButtonContainer(addBackgroundStrip: true) {
+            HStack(spacing: 0) {
                 BottomPillButton(title: "Today", systemImage: nil, action: openCurrentWeekFromToday)
-                BottomPillButton(title: "Genesis", systemImage: "gamecontroller", action: openGenesisGame)
+                Spacer(minLength: 0)
+                BottomPillButton(title: "Play", systemImage: nil, action: openGenesisGame)
+                Spacer(minLength: 0)
+                BottomCircleButton(title: "?", action: openHelp)
             }
+            .frame(maxWidth: .infinity)
         }
     }
 
@@ -290,6 +301,51 @@ struct ContentView: View {
 
     private func openGenesisGame() {
         showGenesisGame = true
+    }
+
+    private func openHelp() {
+        showHelpPopup = true
+    }
+}
+
+private struct HelpPopupView: View {
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                Text("""
+Добро пожаловать в Deer Adventure 🦌
+
+Это приложение объединяет трекер активности и мини‑игру. Ниже короткая инструкция, чтобы быстро освоиться.
+
+1) Главный экран
+• Кнопка Today открывает текущую неделю.
+• Кнопка Play запускает игровую сцену.
+• Кнопка ? открывает это окно помощи.
+
+2) Работа с неделями и днями
+• Внутри недели можно увеличивать и уменьшать дневные значения кнопками + и −.
+• Когда дневное значение достигает 10, срабатывает праздничный эффект.
+• Все данные сохраняются локально и учитываются в суммах по неделям/месяцам.
+
+3) Игра
+• Используйте джойстик для движения.
+• Следите за таймером, множителем и топ‑счётом.
+• В любой момент можно поставить игру на паузу через верхние контролы.
+
+4) Навигация
+• Можно возвращаться назад кнопками внизу.
+• Дополнительно работает свайп от левого края в некоторых экранах.
+
+Совет:
+Заполняйте значения регулярно — так проще видеть прогресс по неделям и месяцам, а игра становится приятным бонусом к рутине.
+""")
+                .font(.system(size: 18, weight: .regular, design: .rounded))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(20)
+            }
+            .navigationTitle("Help")
+            .navigationBarTitleDisplayMode(.inline)
+        }
     }
 }
 
@@ -916,12 +972,34 @@ private struct BottomPillButton: View {
                     Image(systemName: systemImage)
                 }
                 Text(title)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+                    .allowsTightening(true)
             }
             .font(.system(size: BottomButtonStyle.fontSize, weight: .semibold, design: .rounded))
             .foregroundStyle(.primary)
             .padding(.horizontal, BottomButtonStyle.horizontalPadding)
             .padding(.vertical, BottomButtonStyle.verticalPadding)
             .background(.white.opacity(BottomButtonStyle.backgroundOpacity), in: Capsule())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct BottomCircleButton: View {
+    let title: String
+    let action: () -> Void
+
+    var body: some View {
+        Button {
+            AppHaptics.playButtonTap()
+            action()
+        } label: {
+            Text(title)
+                .font(.system(size: BottomButtonStyle.fontSize, weight: .semibold, design: .rounded))
+                .foregroundStyle(.primary)
+                .frame(width: 56, height: 56)
+                .background(.white.opacity(BottomButtonStyle.backgroundOpacity), in: Circle())
         }
         .buttonStyle(.plain)
     }
@@ -939,12 +1017,15 @@ private struct BottomLeftButtonContainer<Content: View>: View {
                 Spacer()
             }
             .padding(.horizontal, BottomButtonLayout.horizontalInset)
+            .padding(.top, addBackgroundStrip ? BottomButtonLayout.bottomInset : 0)
             .padding(.bottom, BottomButtonLayout.bottomInset)
-            .background(
-                addBackgroundStrip
-                ? Color(.systemGray6).opacity(BottomButtonStyle.backgroundOpacity)
-                : Color.clear
-            )
+            .background {
+                if addBackgroundStrip {
+                    Rectangle()
+                        .fill(.ultraThinMaterial)
+                        .ignoresSafeArea(edges: .bottom)
+                }
+            }
         }
         .ignoresSafeArea(edges: .bottom)
     }

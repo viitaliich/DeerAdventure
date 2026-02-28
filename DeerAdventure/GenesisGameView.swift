@@ -1,18 +1,38 @@
 import SwiftUI
 import SpriteKit
 import Combine
+import SwiftData
+
+private enum GenesisDayValueKey {
+    static let formatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter
+    }()
+
+    static func make(from date: Date) -> String {
+        formatter.string(from: Calendar.current.startOfDay(for: date))
+    }
+}
 
 final class GenesisOverlayModel: ObservableObject {
     @Published var populationText: String = ""
     @Published var timerText: String = ""
+    @Published var breedingMultiplierText: String = "x1"
+    @Published var topScoreText: String = "Top Score: 0"
     @Published var biomeTitle: String = ""
     @Published var gameOverText: String = ""
+    @Published var pauseText: String = "PAUSE"
     @Published var isPlaying: Bool = false
     @Published var isGameOver: Bool = false
+    @Published var isPaused: Bool = false
 }
 
 struct GenesisGameView: View {
     @Environment(\.dismiss) private var dismiss
+    @Query private var dayEntries: [DayValueEntry]
     @StateObject private var overlay = GenesisOverlayModel()
 
     @State private var scene: GenesisGameScene = {
@@ -22,8 +42,20 @@ struct GenesisGameView: View {
     }()
 
     @State private var joystickOffset: CGSize = .zero
+    @State private var pauseDetailsVisible: Bool = false
+    @State private var isResumingFromPause: Bool = false
+    private let pauseMorphDuration: TimeInterval = 0.5
+    private let pauseDetailsMorphDuration: TimeInterval = 0.24
+    private let modalEdgeInset: CGFloat = 66
+    private let gameplayEdgeInset: CGFloat = 16
     private let joystickRadius: CGFloat = 54
     private let joystickScreenOffset = CGSize(width: 70, height: -22)
+
+    private func triggerButtonHaptic() {
+        let generator = UIImpactFeedbackGenerator(style: .light)
+        generator.prepare()
+        generator.impactOccurred()
+    }
 
     var body: some View {
         ZStack {
@@ -37,42 +69,183 @@ struct GenesisGameView: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
+
+            morphingStatusCard
+            stateModal
         }
         .statusBarHidden()
+        .animation(.smooth(duration: pauseMorphDuration), value: overlay.isPaused)
         .onAppear {
             scene.overlayModel = overlay
+            applyTodayBreedingMultiplier()
+        }
+        .onChange(of: overlay.isPaused) { _, isPaused in
+            if isPaused {
+                isResumingFromPause = false
+                pauseDetailsVisible = false
+                DispatchQueue.main.asyncAfter(deadline: .now() + pauseMorphDuration + 0.02) {
+                    if overlay.isPaused {
+                        withAnimation(.easeInOut(duration: pauseDetailsMorphDuration)) {
+                            pauseDetailsVisible = true
+                        }
+                    }
+                }
+            } else {
+                pauseDetailsVisible = false
+                isResumingFromPause = false
+            }
+        }
+        .onChange(of: dayEntries) { _, _ in
+            applyTodayBreedingMultiplier()
         }
     }
 
+    private func applyTodayBreedingMultiplier() {
+        let todayKey = GenesisDayValueKey.make(from: Date())
+        let todayValue = dayEntries
+            .filter { $0.dateKey == todayKey }
+            .map { $0.value }
+            .max() ?? 0
+
+        scene.setBreedingBirthMultiplier(todayValue)
+    }
+
     private var topHUD: some View {
-        HStack(spacing: 10) {
-            Button {
-                if overlay.isPlaying || overlay.isGameOver {
-                    scene.returnToMenuFromOverlay()
-                } else {
-                    dismiss()
+        Group {
+            if overlay.isGameOver {
+                EmptyView()
+            } else {
+                HStack(spacing: 10) {
+                    Button {
+                        triggerButtonHaptic()
+                        if overlay.isPlaying {
+                            scene.pauseGameFromOverlay()
+                        } else {
+                            dismiss()
+                        }
+                    } label: {
+                        Group {
+                            if overlay.isPlaying {
+                                Image(systemName: "pause.fill")
+                                    .font(.system(size: 18, weight: .bold))
+                                    .foregroundStyle(.black)
+                                    .frame(width: 44, height: 44)
+                                    .background(.ultraThinMaterial, in: Circle())
+                                    .scaleEffect(overlay.isPaused ? 0.001 : 1.0)
+                                    .animation(.easeInOut(duration: 0.34), value: overlay.isPaused)
+                            } else {
+                                Label("Back", systemImage: "chevron.left")
+                                    .font(.system(size: 16, weight: .semibold, design: .rounded))
+                                    .padding(.horizontal, 14)
+                                    .frame(height: 44)
+                                    .background(.ultraThinMaterial, in: Capsule())
+                            }
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.top, overlay.isPlaying ? 12 : 0)
+
+                    Spacer()
                 }
-            } label: {
-                Label(overlay.isPlaying || overlay.isGameOver ? "Menu" : "Back", systemImage: "chevron.left")
-                    .font(.system(size: 16, weight: .semibold, design: .rounded))
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-                    .background(.ultraThinMaterial, in: Capsule())
             }
+        }
+    }
 
-            Spacer()
+    @ViewBuilder
+    private var morphingStatusCard: some View {
+        if overlay.isPlaying && !overlay.isGameOver {
+            GeometryReader { _ in
+                let gameplayCardWidth: CGFloat = 210
 
-            if overlay.isPlaying {
-                VStack(alignment: .trailing, spacing: 4) {
-                    Text(overlay.populationText)
-                        .font(.system(size: 20, weight: .bold, design: .rounded))
-                    Text(overlay.timerText)
-                        .font(.system(size: 18, weight: .semibold, design: .rounded))
+                VStack(spacing: 10) {
+                    if overlay.isPaused {
+                        Text(overlay.pauseText)
+                            .font(.system(size: 30, weight: .black, design: .rounded))
+                            .multilineTextAlignment(.center)
+                            .scaleEffect(pauseDetailsVisible ? 1.0 : 0.001)
+                            .opacity(pauseDetailsVisible ? 1.0 : 0.0)
+
+                        Text(overlay.topScoreText)
+                            .font(.system(size: 20, weight: .bold, design: .rounded))
+                            .multilineTextAlignment(.center)
+                            .scaleEffect(pauseDetailsVisible ? 1.0 : 0.001)
+                            .opacity(pauseDetailsVisible ? 1.0 : 0.0)
+                    }
+
+                    HStack(spacing: 10) {
+                        Text(overlay.breedingMultiplierText)
+                            .font(.system(size: 18, weight: .bold, design: .rounded))
+                            .frame(
+                                width: overlay.isPaused ? 0 : 44,
+                                height: overlay.isPaused ? 0 : 44
+                            )
+                            .background(.ultraThinMaterial, in: Circle())
+                            .scaleEffect(overlay.isPaused ? 0.001 : 1.0)
+
+                        VStack(alignment: overlay.isPaused ? .center : .trailing, spacing: overlay.isPaused ? 8 : 4) {
+                            Text(overlay.populationText)
+                                .font(.system(size: 20, weight: .bold, design: .rounded))
+                                .multilineTextAlignment(overlay.isPaused ? .center : .trailing)
+
+                            Text(overlay.timerText)
+                                .font(
+                                    .system(
+                                        size: 20,
+                                        weight: overlay.isPaused ? .bold : .semibold,
+                                        design: .rounded
+                                    )
+                                )
+                                .monospacedDigit()
+                                .contentTransition(.numericText(countsDown: true))
+                                .animation(.snappy(duration: 0.32), value: overlay.timerText)
+                                .multilineTextAlignment(overlay.isPaused ? .center : .trailing)
+                        }
+                        .frame(maxWidth: .infinity, alignment: overlay.isPaused ? .center : .trailing)
+                    }
+
+                    if overlay.isPaused {
+                        HStack(spacing: 10) {
+                            Button("Continue") {
+                                triggerButtonHaptic()
+                                guard !isResumingFromPause else { return }
+                                isResumingFromPause = true
+                                withAnimation(.easeInOut(duration: pauseDetailsMorphDuration)) {
+                                    pauseDetailsVisible = false
+                                }
+                                DispatchQueue.main.asyncAfter(deadline: .now() + pauseDetailsMorphDuration + 0.02) {
+                                    scene.resumeGameFromOverlay()
+                                }
+                            }
+                            .font(.system(size: 16, weight: .semibold, design: .rounded))
+                            .padding(.horizontal, 14)
+                            .frame(height: 44)
+                            .background(.ultraThinMaterial, in: Capsule())
+
+                            Button("Exit") {
+                                triggerButtonHaptic()
+                                dismiss()
+                            }
+                            .font(.system(size: 16, weight: .semibold, design: .rounded))
+                            .foregroundStyle(.red)
+                            .padding(.horizontal, 14)
+                            .frame(height: 44)
+                            .background(.ultraThinMaterial, in: Capsule())
+                        }
+                        .scaleEffect(pauseDetailsVisible ? 1.0 : 0.001)
+                        .opacity(pauseDetailsVisible ? 1.0 : 0.0)
+                        .allowsHitTesting(pauseDetailsVisible)
+                    }
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
-                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+                .frame(width: overlay.isPaused ? nil : gameplayCardWidth)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: overlay.isPaused ? .bottom : .topTrailing)
+                .padding(.horizontal, overlay.isPaused ? modalEdgeInset : gameplayEdgeInset)
+                .padding(.bottom, overlay.isPaused ? modalEdgeInset : 0)
+                .padding(.top, overlay.isPaused ? 0 : 12)
             }
+            .ignoresSafeArea(edges: .bottom)
         }
     }
 
@@ -82,35 +255,65 @@ struct GenesisGameView: View {
             .overlay(alignment: .bottom) {
                 if overlay.isPlaying && !overlay.isGameOver {
                     joystick
+                        .scaleEffect(overlay.isPaused ? 0.001 : 1.0)
+                        .opacity(overlay.isPaused ? 0.0 : 1.0)
+                        .allowsHitTesting(!overlay.isPaused)
+                        .animation(.easeInOut(duration: 0.34), value: overlay.isPaused)
                         .offset(joystickScreenOffset)
                 }
             }
-            .overlay(alignment: .center) {
-                if overlay.isGameOver {
-                    let parts = overlay.gameOverText.split(separator: "\n", maxSplits: 1).map(String.init)
-                    VStack(spacing: 10) {
-                        Text(parts.first ?? "GAME OVER")
-                            .font(.system(size: 30, weight: .black, design: .rounded))
+    }
+
+    @ViewBuilder
+    private var stateModal: some View {
+        if overlay.isGameOver {
+            let parts = overlay.gameOverText.split(separator: "\n", maxSplits: 1).map(String.init)
+            VStack(spacing: 10) {
+                Text(parts.first ?? "GAME OVER")
+                    .font(.system(size: 30, weight: .black, design: .rounded))
+                    .multilineTextAlignment(.center)
+
+                VStack(spacing: 4) {
+                    Text(overlay.topScoreText)
+                        .font(.system(size: 20, weight: .bold, design: .rounded))
+                        .multilineTextAlignment(.center)
+
+                    if parts.count > 1 {
+                        Text(parts[1])
+                            .font(.system(size: 20, weight: .bold, design: .rounded))
                             .multilineTextAlignment(.center)
-
-                        if parts.count > 1 {
-                            Text(parts[1])
-                                .font(.system(size: 20, weight: .bold, design: .rounded))
-                                .multilineTextAlignment(.center)
-                        }
-
-                        Button("Return to Menu") {
-                            scene.returnToMenuFromOverlay()
-                        }
-                        .font(.system(size: 16, weight: .semibold, design: .rounded))
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 8)
-                        .background(.ultraThinMaterial, in: Capsule())
                     }
-                    .padding(18)
-                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+                }
+
+                HStack(spacing: 10) {
+                    Button("Restart") {
+                        triggerButtonHaptic()
+                        scene.restartGameFromOverlay()
+                    }
+                    .font(.system(size: 16, weight: .semibold, design: .rounded))
+                    .padding(.horizontal, 14)
+                    .frame(height: 44)
+                    .background(.ultraThinMaterial, in: Capsule())
+
+                    Button("Exit") {
+                        triggerButtonHaptic()
+                        dismiss()
+                    }
+                    .font(.system(size: 16, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.red)
+                    .padding(.horizontal, 14)
+                    .frame(height: 44)
+                    .background(.ultraThinMaterial, in: Capsule())
                 }
             }
+            .frame(maxWidth: .infinity)
+            .padding(18)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+            .padding(.horizontal, modalEdgeInset)
+            .padding(.bottom, modalEdgeInset)
+            .ignoresSafeArea(edges: .bottom)
+        }
     }
 
     private var joystick: some View {

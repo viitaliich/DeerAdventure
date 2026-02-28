@@ -4,6 +4,8 @@ import AVFoundation
 
 final class GenesisGameScene: SKScene {
     weak var overlayModel: GenesisOverlayModel?
+    private static let topScoreDefaultsKey = "GenesisTopScore"
+    private let isMainMenuDisabled = true
 
     enum Biome: CaseIterable {
         case forest, snow, ocean
@@ -18,14 +20,14 @@ final class GenesisGameScene: SKScene {
 
         var levelImageName: String {
             switch self {
-            case .forest: return "genesis_level_forest"
+            case .forest: return "genesis_level_forest_3"
             case .snow: return "genesis_level_snow"
             case .ocean: return "genesis_level_ocean"
             }
         }
     }
 
-    private enum State { case menu, playing, gameOver }
+    private enum State { case menu, playing, paused, gameOver }
     private enum GroundTile { case grassGround, grass, rock, water, snow, ice, flower, snowRock, voidTile }
     private enum OverlayTile { case none, tree, snowTree, torch }
 
@@ -67,6 +69,7 @@ final class GenesisGameScene: SKScene {
     private let hudNode = SKNode()
     private let cameraNode2D = SKCameraNode()
     private let gameplayZoom: CGFloat = 0.6
+    private let deerMoveSpeed: CGFloat = 1.5
 
     private let tileSize: CGFloat = 16
     private var levelWidth = 128
@@ -79,7 +82,8 @@ final class GenesisGameScene: SKScene {
     private var waterAnimTick: Int = 0
 
     private var population: Double = 2
-    private var growth: Double = 0.05
+    private var breedingBirthMultiplier: Int = 1
+    private var topScore: Int = UserDefaults.standard.integer(forKey: GenesisGameScene.topScoreDefaultsKey)
     private var timeRemaining: Int = 5 * 60
 //    private var timeRemaining: Int = 5
     
@@ -159,6 +163,12 @@ final class GenesisGameScene: SKScene {
 
     private let soundManager = SoundManager()
 
+    private func triggerBreedingHaptic() {
+        let generator = UIImpactFeedbackGenerator(style: .light)
+        generator.prepare()
+        generator.impactOccurred()
+    }
+
     deinit {
         soundManager.stopAll()
     }
@@ -180,7 +190,11 @@ final class GenesisGameScene: SKScene {
 
         loadSheetIfNeeded()
         setupHUD()
-        showMenu()
+        if isMainMenuDisabled {
+            startGame(with: .forest)
+        } else {
+            showMenu()
+        }
     }
 
     private func setCameraZoom(_ zoom: CGFloat) {
@@ -221,6 +235,11 @@ final class GenesisGameScene: SKScene {
     }
 
     private func showMenu() {
+        if isMainMenuDisabled {
+            startGame(with: .forest)
+            return
+        }
+
         state = .menu
         setCameraZoom(1.0)
         clearWorld()
@@ -228,8 +247,11 @@ final class GenesisGameScene: SKScene {
         inputVector = .zero
         overlayModel?.isPlaying = false
         overlayModel?.isGameOver = false
+        overlayModel?.isPaused = false
         overlayModel?.populationText = ""
         overlayModel?.timerText = ""
+        overlayModel?.breedingMultiplierText = breedingMultiplierDisplayText
+        overlayModel?.topScoreText = "Top Score: \(topScore)"
         overlayModel?.biomeTitle = ""
         overlayModel?.gameOverText = ""
 
@@ -274,8 +296,7 @@ final class GenesisGameScene: SKScene {
         stateTick = 0
         waterAnimTick = 0
         population = 2
-        growth = 0.05
-        timeRemaining = 5 * 60
+        timeRemaining = 30
 //        timeRemaining = 5
 
         cameraNode2D.children.filter { $0 !== hudNode }.forEach { $0.removeFromParent() }
@@ -285,6 +306,7 @@ final class GenesisGameScene: SKScene {
         backLabel.isHidden = true
         overlayModel?.isPlaying = true
         overlayModel?.isGameOver = false
+        overlayModel?.isPaused = false
         overlayModel?.biomeTitle = biome.title
 
         soundManager.playLoop("theme")
@@ -389,6 +411,7 @@ final class GenesisGameScene: SKScene {
         updateFemalesAndMobs()
         updateBreeding()
         updatePopulation()
+        updateTopScoreIfNeeded()
 
         if stateTick % 60 == 0 {
             timeRemaining -= 1
@@ -405,8 +428,7 @@ final class GenesisGameScene: SKScene {
 
     private func updatePlayer() {
         guard let player else { return }
-        let xa = Int(round(inputVector.dx))
-        let ya = Int(round(inputVector.dy))
+        let (xa, ya) = normalizedDirection(x: CGFloat(inputVector.dx), y: CGFloat(inputVector.dy))
         move(mob: player, xa: xa, ya: ya)
         syncMobNode(player)
         cameraNode2D.position = clampedCameraPosition(x: player.x + 8, y: player.y + 8)
@@ -445,7 +467,8 @@ final class GenesisGameScene: SKScene {
                 female.xa = Int.random(in: -1...1)
                 female.ya = Int.random(in: -1...1)
             }
-            move(mob: female, xa: female.xa, ya: female.ya)
+            let (fx, fy) = normalizedDirection(x: CGFloat(female.xa), y: CGFloat(female.ya))
+            move(mob: female, xa: fx, ya: fy)
             syncMobNode(female)
         }
 
@@ -454,9 +477,16 @@ final class GenesisGameScene: SKScene {
                 mob.xa = Int.random(in: -1...1)
                 mob.ya = Int.random(in: -1...1)
             }
-            move(mob: mob, xa: mob.xa, ya: mob.ya)
+            let (mx, my) = normalizedDirection(x: CGFloat(mob.xa), y: CGFloat(mob.ya))
+            move(mob: mob, xa: mx, ya: my)
             syncMobNode(mob)
         }
+    }
+
+    private func normalizedDirection(x: CGFloat, y: CGFloat) -> (CGFloat, CGFloat) {
+        let length = hypot(x, y)
+        guard length > 0.0001 else { return (0, 0) }
+        return (x / length, y / length)
     }
 
     private func updateBreeding() {
@@ -464,7 +494,8 @@ final class GenesisGameScene: SKScene {
 
         for female in females where female.canSpawnChild {
             if (Int(player.x) >> 4) == (Int(female.x) >> 4), (Int(player.y) >> 4) == (Int(female.y) >> 4) {
-                let born = Int.random(in: 1...4)
+                let baseBorn = Int.random(in: 1...4)
+                let born = baseBorn * breedingBirthMultiplier
                 for _ in 0..<born {
                     let kind: Mob.Kind = (selectedBiome == .ocean) ? .oceanMob : .forestMob
                     let m = Mob(kind: kind, x: player.x, y: player.y, texture: mobTexture(kind: kind, dir: 0, walking: false, anim: 0))
@@ -472,10 +503,10 @@ final class GenesisGameScene: SKScene {
                     mobs.append(m)
                     syncMobNode(m)
                 }
-
-                growth += (growth / 4)
+                population += Double(born)
                 female.canSpawnChild = false
                 soundManager.playOneShot("breed", volume: 0.85)
+                triggerBreedingHaptic()
 
                 let femaleCount: Int
                 switch selectedBiome {
@@ -497,7 +528,6 @@ final class GenesisGameScene: SKScene {
     }
 
     private func updatePopulation() {
-        population += growth
         let pop = Int(floor(population))
         if pop > 0, pop % 800 == 0, Int.random(in: 0..<6) == 0 {
             let kind: Mob.Kind = (selectedBiome == .ocean) ? .oceanMob : .forestMob
@@ -519,11 +549,14 @@ final class GenesisGameScene: SKScene {
     }
 
     private func showGameOver() {
+        updateTopScoreIfNeeded()
         state = .gameOver
         inputVector = .zero
         backLabel.isHidden = true
         overlayModel?.isGameOver = true
+        overlayModel?.isPaused = false
         overlayModel?.gameOverText = "GAME OVER\nPopulation: \(Int(population))"
+        overlayModel?.topScoreText = "Top Score: \(topScore)"
         soundManager.stopAllLoops()
         soundManager.playOneShot("gameover", volume: 1.0)
     }
@@ -541,51 +574,97 @@ final class GenesisGameScene: SKScene {
 
         overlayModel?.populationText = populationLabel.text ?? ""
         overlayModel?.timerText = timerLabel.text ?? ""
+        overlayModel?.breedingMultiplierText = breedingMultiplierDisplayText
+        overlayModel?.topScoreText = "Top Score: \(topScore)"
+    }
+
+    private func updateTopScoreIfNeeded() {
+        let currentPopulation = Int(floor(population))
+        guard currentPopulation > topScore else { return }
+        topScore = currentPopulation
+        UserDefaults.standard.set(topScore, forKey: Self.topScoreDefaultsKey)
     }
 
     func setInputVector(_ vector: CGVector) {
+        guard state == .playing else { return }
         inputVector = vector
+    }
+
+    func pauseGameFromOverlay() {
+        guard state == .playing else { return }
+        state = .paused
+        inputVector = .zero
+        overlayModel?.isPaused = true
+        soundManager.playLoop("menutheme")
+    }
+
+    func resumeGameFromOverlay() {
+        guard state == .paused else { return }
+        state = .playing
+        inputVector = .zero
+        overlayModel?.isPaused = false
+        soundManager.playLoop("theme")
     }
 
     func returnToMenuFromOverlay() {
         showMenu()
     }
 
-    private func move(mob: Mob, xa: Int, ya: Int) {
-        if xa != 0 && ya != 0 {
-            move(mob: mob, xa: xa, ya: 0)
-            move(mob: mob, xa: 0, ya: ya)
-            return
-        }
+    func restartGameFromOverlay() {
+        guard state == .gameOver else { return }
+        startGame(with: selectedBiome)
+    }
 
-        if xa > 0 { mob.dir = 1 }
-        if xa < 0 { mob.dir = 3 }
-        if ya > 0 { mob.dir = 2 }
-        if ya < 0 { mob.dir = 0 }
+    private var breedingMultiplierDisplayText: String {
+        "x\(breedingBirthMultiplier)"
+    }
+
+    private func normalizeBreedingBirthMultiplier(_ value: Int) -> Int {
+        min(100, max(1, value))
+    }
+
+    func setBreedingBirthMultiplier(_ value: Int) {
+        breedingBirthMultiplier = normalizeBreedingBirthMultiplier(value)
+        overlayModel?.breedingMultiplierText = breedingMultiplierDisplayText
+    }
+
+    private func move(mob: Mob, xa: CGFloat, ya: CGFloat) {
+        var stepX = xa * deerMoveSpeed
+        var stepY = ya * deerMoveSpeed
+
+        let absX = abs(xa)
+        let absY = abs(ya)
+        if absX > 0.0001 || absY > 0.0001 {
+            if absX >= absY {
+                mob.dir = xa >= 0 ? 1 : 3
+            } else {
+                mob.dir = ya >= 0 ? 2 : 0
+            }
+        }
 
         mob.walking = (xa != 0 || ya != 0)
         mob.anim += 1
 
-        if !collisionFor(mob: mob, xa: xa, ya: ya) && !collisionForOverlay(mob: mob, xa: xa, ya: ya) {
-            mob.x += CGFloat(xa)
-            mob.y += CGFloat(ya)
+        if !collisionFor(mob: mob, xa: stepX, ya: stepY) && !collisionForOverlay(mob: mob, xa: stepX, ya: stepY) {
+            mob.x += stepX
+            mob.y += stepY
         }
     }
 
-    private func collisionFor(mob: Mob, xa: Int, ya: Int) -> Bool {
+    private func collisionFor(mob: Mob, xa: CGFloat, ya: CGFloat) -> Bool {
         for i in 0..<4 {
-            let xt = ((Int(mob.x) + xa) + ((i % 2) * 2) * 5) >> 4
-            let worldTileY = ((Int(mob.y) + ya) + ((i / 2) * 2 - 4) * 2) >> 4
+            let xt = (Int(mob.x + xa) + ((i % 2) * 2) * 5) >> 4
+            let worldTileY = (Int(mob.y + ya) + ((i / 2) * 2 - 4) * 2) >> 4
             let mapTileY = levelHeight - 1 - worldTileY
             if solid(tileAt: xt, y: mapTileY + 1) { return true }
         }
         return false
     }
 
-    private func collisionForOverlay(mob: Mob, xa: Int, ya: Int) -> Bool {
+    private func collisionForOverlay(mob: Mob, xa: CGFloat, ya: CGFloat) -> Bool {
         for i in 0..<4 {
-            let xt = ((Int(mob.x) + xa) + ((i % 2) * 2 - 1) * 4) >> 4
-            let worldTileY = ((Int(mob.y) + ya) + ((i / 2) * 2 - 1) * 4) >> 4
+            let xt = (Int(mob.x + xa) + ((i % 2) * 2 - 1) * 4) >> 4
+            let worldTileY = (Int(mob.y + ya) + ((i / 2) * 2 - 1) * 4) >> 4
             let mapTileY = levelHeight - 1 - worldTileY
             if solidOverlay(tileAt: xt, y: mapTileY) { return true }
         }
@@ -771,20 +850,32 @@ final class GenesisGameScene: SKScene {
         }
     }
 
-    private func mobTexture(kind: Mob.Kind, dir: Int, walking: Bool, anim: Int) -> SKTexture {
+    private func mobTexture(kind: Mob.Kind, dir: Int, walking: Bool, anim: Int, femaleCanSpawnChild: Bool = true) -> SKTexture {
         switch kind {
-        case .player, .forestMob, .oceanMob:
+        case .player:
+            // Герой: тёмный олень с рогами (набор из строки y=7).
             // Меняем верх/низ местами: при движении "вниз к камере" должен быть фронт.
             if dir == 0 { return walking ? spriteTexture(tileX: 3, tileY: 7) : spriteTexture(tileX: 2, tileY: 7) }
             if dir == 1 { return walking && anim % 250 <= 125 ? spriteTexture(tileX: 5, tileY: 7) : spriteTexture(tileX: 4, tileY: 7) }
             if dir == 2 { return walking ? spriteTexture(tileX: 1, tileY: 7) : spriteTexture(tileX: 0, tileY: 7) }
             return walking && anim % 250 <= 125 ? spriteTexture(tileX: 5, tileY: 7) : spriteTexture(tileX: 4, tileY: 7)
 
+        case .forestMob, .oceanMob:
+            // Новорождённые: более светлый олень с рогами (набор из строки y=9).
+            if dir == 0 { return walking ? spriteTexture(tileX: 3, tileY: 9) : spriteTexture(tileX: 2, tileY: 9) }
+            if dir == 1 { return walking && anim % 250 <= 125 ? spriteTexture(tileX: 5, tileY: 9) : spriteTexture(tileX: 4, tileY: 9) }
+            if dir == 2 { return walking ? spriteTexture(tileX: 1, tileY: 9) : spriteTexture(tileX: 0, tileY: 9) }
+            return walking && anim % 250 <= 125 ? spriteTexture(tileX: 5, tileY: 9) : spriteTexture(tileX: 4, tileY: 9)
+
         case .female:
-            if dir == 0 { return walking ? spriteTexture(tileX: 9, tileY: 7) : spriteTexture(tileX: 8, tileY: 7) }
-            if dir == 1 { return walking && anim % 250 <= 125 ? spriteTexture(tileX: 11, tileY: 7) : spriteTexture(tileX: 10, tileY: 7) }
-            if dir == 2 { return walking ? spriteTexture(tileX: 7, tileY: 7) : spriteTexture(tileX: 6, tileY: 7) }
-            return walking && anim % 250 <= 125 ? spriteTexture(tileX: 11, tileY: 7) : spriteTexture(tileX: 10, tileY: 7)
+            // Самки:
+            // - canSpawnChild = true  -> чёрный нос/хвост (не оплодотворена), строка y=7
+            // - canSpawnChild = false -> красный нос/хвост (оплодотворена), строка y=9
+            let row = femaleCanSpawnChild ? 7 : 9
+            if dir == 0 { return walking ? spriteTexture(tileX: 9, tileY: row) : spriteTexture(tileX: 8, tileY: row) }
+            if dir == 1 { return walking && anim % 250 <= 125 ? spriteTexture(tileX: 11, tileY: row) : spriteTexture(tileX: 10, tileY: row) }
+            if dir == 2 { return walking ? spriteTexture(tileX: 7, tileY: row) : spriteTexture(tileX: 6, tileY: row) }
+            return walking && anim % 250 <= 125 ? spriteTexture(tileX: 11, tileY: row) : spriteTexture(tileX: 10, tileY: row)
 
         case .predator:
             if dir == 0 { return spriteTexture(tileX: 2, tileY: 8) }
@@ -799,7 +890,13 @@ final class GenesisGameScene: SKScene {
         // и визуально «уезжает» на 16px влево. Компенсируем это сдвигом на ширину тайла.
         let flipOffsetX: CGFloat = (mob.dir == 3) ? 16 : 0
         mob.node.position = CGPoint(x: mob.x + flipOffsetX, y: mob.y)
-        mob.node.texture = mobTexture(kind: mob.kind, dir: mob.dir, walking: mob.walking, anim: mob.anim)
+        mob.node.texture = mobTexture(
+            kind: mob.kind,
+            dir: mob.dir,
+            walking: mob.walking,
+            anim: mob.anim,
+            femaleCanSpawnChild: mob.canSpawnChild
+        )
         mob.node.xScale = (mob.dir == 3) ? -1 : 1
     }
 
@@ -854,7 +951,7 @@ final class GenesisGameScene: SKScene {
 
     private func loadSheetIfNeeded() {
         if spriteSheet != nil { return }
-        if let img = UIImage(named: "genesis_sprites")?.cgImage {
+        if let img = UIImage(named: "genesis_sprites_1")?.cgImage {
             spriteSheet = makeMagentaTransparent(image: img)
         }
     }
@@ -984,6 +1081,8 @@ final class GenesisGameScene: SKScene {
                 return
             }
         case .gameOver:
+            return
+        case .paused:
             return
         case .playing:
             return
