@@ -313,37 +313,33 @@ private struct HelpPopupView: View {
         NavigationStack {
             ScrollView {
                 Text("""
-Добро пожаловать в Deer Adventure 🦌
+Welcome to Deer Adventure!
 
-Это приложение объединяет трекер активности и мини‑игру. Ниже короткая инструкция, чтобы быстро освоиться.
+This app combines an activity tracker with a mini-game. Here's a quick guide to get you started.
 
-1) Главный экран
-• Кнопка Today открывает текущую неделю.
-• Кнопка Play запускает игровую сцену.
-• Кнопка ? открывает это окно помощи.
+1) Main Screen
+• The Today button opens the current week.
+• The Play button launches the game scene.
+• The ? button opens this help window.
 
-2) Работа с неделями и днями
-• Внутри недели можно увеличивать и уменьшать дневные значения кнопками + и −.
-• Когда дневное значение достигает 10, срабатывает праздничный эффект.
-• Все данные сохраняются локально и учитываются в суммах по неделям/месяцам.
+2) Working with Weeks and Days
+• Inside a week, you can increase and decrease daily values using the + and − buttons.
+• The daily goal is 10 deer.
 
-3) Игра
-• Используйте джойстик для движения.
-• Следите за таймером, множителем и топ‑счётом.
-• В любой момент можно поставить игру на паузу через верхние контролы.
+3) The Game
+• Use the joystick to move.
+• Keep an eye on the timer, multiplier, and top score.
+• Multiplier is based on your current dayly progress — the more deer you have for the day, the higher it goes!
+• You can pause the game at any time using the top controls.
 
-4) Навигация
-• Можно возвращаться назад кнопками внизу.
-• Дополнительно работает свайп от левого края в некоторых экранах.
-
-Совет:
-Заполняйте значения регулярно — так проще видеть прогресс по неделям и месяцам, а игра становится приятным бонусом к рутине.
+Tip:
+Fill in the values regularly — it’s easier to see your progress across weeks and months, and the game becomes a fun bonus to your routine.
 """)
                 .font(.system(size: 18, weight: .regular, design: .rounded))
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(20)
             }
-            .navigationTitle("Help")
+            .navigationTitle("About")
             .navigationBarTitleDisplayMode(.inline)
         }
     }

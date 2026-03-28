@@ -296,7 +296,7 @@ final class GenesisGameScene: SKScene {
         stateTick = 0
         waterAnimTick = 0
         population = 2
-        timeRemaining = 30
+        timeRemaining = 5 * 60
 //        timeRemaining = 5
 
         cameraNode2D.children.filter { $0 !== hudNode }.forEach { $0.removeFromParent() }
