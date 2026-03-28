@@ -1,11 +1,9 @@
 import SpriteKit
 import UIKit
-import AVFoundation
 
 final class GenesisGameScene: SKScene {
     weak var overlayModel: GenesisOverlayModel?
     private static let topScoreDefaultsKey = "GenesisTopScore"
-    private let isMainMenuDisabled = true
 
     enum Biome: CaseIterable {
         case forest, snow, ocean
@@ -34,7 +32,7 @@ final class GenesisGameScene: SKScene {
     private struct SpawnPoint { let x: CGFloat; let y: CGFloat }
 
     private final class Mob {
-        enum Kind { case player, female, forestMob, oceanMob, predator }
+        enum Kind { case player, female, forestMob, oceanMob }
 
         let kind: Kind
         let node: SKSpriteNode
@@ -84,9 +82,8 @@ final class GenesisGameScene: SKScene {
     private var population: Double = 2
     private var breedingBirthMultiplier: Int = 1
     private var topScore: Int = UserDefaults.standard.integer(forKey: GenesisGameScene.topScoreDefaultsKey)
-    private var timeRemaining: Int = 5 * 60
-//    private var timeRemaining: Int = 5
-    
+    private var timeRemaining: Int = GameBalance.gameDuration
+
 
     private var player: Mob?
     private var females: [Mob] = []
@@ -100,66 +97,11 @@ final class GenesisGameScene: SKScene {
 
     private var populationLabel = SKLabelNode(fontNamed: "AvenirNext-Bold")
     private var timerLabel = SKLabelNode(fontNamed: "AvenirNext-Bold")
-    private var backLabel = SKLabelNode(fontNamed: "AvenirNext-Bold")
-    private var menuTitleLabel = SKLabelNode(fontNamed: "AvenirNext-Bold")
     private var gameOverLabel = SKLabelNode(fontNamed: "AvenirNext-Bold")
-    private var biomeLabels: [Biome: SKLabelNode] = [:]
 
     private var spriteSheet: CGImage?
     private var textureCache: [String: SKTexture] = [:]
     private var tileImageCache: [String: CGImage] = [:]
-
-    private final class SoundManager {
-        private var loopingPlayers: [String: AVAudioPlayer] = [:]
-
-        func playLoop(_ name: String) {
-            stopAllLoops()
-            guard let url = Bundle.main.url(forResource: name, withExtension: "wav") else { return }
-            do {
-                let player = try AVAudioPlayer(contentsOf: url)
-                player.numberOfLoops = -1
-                player.volume = 0.55
-                player.prepareToPlay()
-                player.play()
-                loopingPlayers[name] = player
-            } catch {
-                print("[Sound] loop error for \(name): \(error)")
-            }
-        }
-
-        func playOneShot(_ name: String, volume: Float = 0.9) {
-            guard let url = Bundle.main.url(forResource: name, withExtension: "wav") else { return }
-            do {
-                let player = try AVAudioPlayer(contentsOf: url)
-                player.numberOfLoops = 0
-                player.volume = volume
-                player.prepareToPlay()
-                player.play()
-                // Держим временно в словаре, чтобы не деаллоцировался до окончания.
-                let key = "oneshot_\(name)_\(Date().timeIntervalSince1970)"
-                loopingPlayers[key] = player
-                DispatchQueue.main.asyncAfter(deadline: .now() + player.duration + 0.1) { [weak self] in
-                    self?.loopingPlayers.removeValue(forKey: key)
-                }
-            } catch {
-                print("[Sound] one-shot error for \(name): \(error)")
-            }
-        }
-
-        func stopAllLoops() {
-            for (_, player) in loopingPlayers {
-                if player.numberOfLoops != 0 {
-                    player.stop()
-                }
-            }
-            loopingPlayers = loopingPlayers.filter { $0.value.numberOfLoops == 0 }
-        }
-
-        func stopAll() {
-            for (_, player) in loopingPlayers { player.stop() }
-            loopingPlayers.removeAll()
-        }
-    }
 
     private let soundManager = SoundManager()
 
@@ -190,11 +132,7 @@ final class GenesisGameScene: SKScene {
 
         loadSheetIfNeeded()
         setupHUD()
-        if isMainMenuDisabled {
-            startGame(with: .forest)
-        } else {
-            showMenu()
-        }
+        startGame(with: .forest)
     }
 
     private func setCameraZoom(_ zoom: CGFloat) {
@@ -205,7 +143,6 @@ final class GenesisGameScene: SKScene {
     override func didChangeSize(_ oldSize: CGSize) {
         populationLabel.position = CGPoint(x: size.width * 0.45, y: size.height * 0.43)
         timerLabel.position = CGPoint(x: 0, y: -size.height * 0.44)
-        backLabel.position = CGPoint(x: -size.width * 0.45, y: -size.height * 0.44)
     }
 
     private func setupHUD() {
@@ -219,73 +156,11 @@ final class GenesisGameScene: SKScene {
         timerLabel.verticalAlignmentMode = .center
         hudNode.addChild(timerLabel)
 
-        backLabel.text = "← Menu"
-        backLabel.fontSize = 22
-        backLabel.horizontalAlignmentMode = .left
-        backLabel.verticalAlignmentMode = .center
-        backLabel.zPosition = 100
-        hudNode.addChild(backLabel)
-
         didChangeSize(size)
 
         // Внутриигровой HUD переносим в SwiftUI (iOS-стиль), SpriteKit-лейблы скрываем.
         populationLabel.isHidden = true
         timerLabel.isHidden = true
-        backLabel.isHidden = true
-    }
-
-    private func showMenu() {
-        if isMainMenuDisabled {
-            startGame(with: .forest)
-            return
-        }
-
-        state = .menu
-        setCameraZoom(1.0)
-        clearWorld()
-        backLabel.isHidden = true
-        inputVector = .zero
-        overlayModel?.isPlaying = false
-        overlayModel?.isGameOver = false
-        overlayModel?.isPaused = false
-        overlayModel?.populationText = ""
-        overlayModel?.timerText = ""
-        overlayModel?.breedingMultiplierText = breedingMultiplierDisplayText
-        overlayModel?.topScoreText = "Top Score: \(topScore)"
-        overlayModel?.biomeTitle = ""
-        overlayModel?.gameOverText = ""
-
-        soundManager.playLoop("menutheme")
-
-        cameraNode2D.children.filter { $0 !== hudNode }.forEach { $0.removeFromParent() }
-
-        menuTitleLabel = SKLabelNode(fontNamed: "AvenirNext-Bold")
-        menuTitleLabel.text = "GENESIS"
-        menuTitleLabel.fontSize = 54
-        menuTitleLabel.position = CGPoint(x: 0, y: 120)
-        cameraNode2D.addChild(menuTitleLabel)
-
-        biomeLabels.removeAll()
-        for (index, biome) in Biome.allCases.enumerated() {
-            let label = SKLabelNode(fontNamed: "AvenirNext-Bold")
-            label.text = biome == selectedBiome ? "> \(biome.title) <" : biome.title
-            label.fontSize = 36
-            label.fontColor = .white
-            label.position = CGPoint(x: 0, y: 30 - CGFloat(index) * 52)
-            label.name = "biome_\(biome.title)"
-            cameraNode2D.addChild(label)
-            biomeLabels[biome] = label
-        }
-
-        let hint = SKLabelNode(fontNamed: "AvenirNext-Regular")
-        hint.text = "Tap biome to start"
-        hint.fontSize = 22
-        hint.alpha = 0.9
-        hint.position = CGPoint(x: 0, y: -170)
-        cameraNode2D.addChild(hint)
-
-        populationLabel.text = ""
-        timerLabel.text = ""
     }
 
     private func startGame(with biome: Biome) {
@@ -296,14 +171,12 @@ final class GenesisGameScene: SKScene {
         stateTick = 0
         waterAnimTick = 0
         population = 2
-        timeRemaining = 5 * 60
-//        timeRemaining = 5
+        timeRemaining = GameBalance.gameDuration
 
         cameraNode2D.children.filter { $0 !== hudNode }.forEach { $0.removeFromParent() }
         clearWorld()
         buildWorld(for: biome)
         spawnInitialEntities(for: biome)
-        backLabel.isHidden = true
         overlayModel?.isPlaying = true
         overlayModel?.isGameOver = false
         overlayModel?.isPaused = false
@@ -356,28 +229,18 @@ final class GenesisGameScene: SKScene {
     }
 
     private func spawnInitialEntities(for biome: Biome) {
-        let playerSpawn: SpawnPoint
-        let femaleSpawn: SpawnPoint
-
+        let spawn: SpawnConfig.BiomeSpawn
         switch biome {
-        case .forest:
-            // На (10,100) в текущей системе координат игрок оказывается внутри дерева и не может сделать шаг.
-            // Сдвиг на 1 тайл влево даёт свободную стартовую позицию.
-            playerSpawn = .init(x: 9 * 16, y: 100 * 16)
-            femaleSpawn = .init(x: 21 * 16, y: 102 * 16)
-        case .snow:
-            playerSpawn = .init(x: 80 * 16, y: 100 * 16)
-            femaleSpawn = .init(x: 105 * 16, y: 94 * 16)
-        case .ocean:
-            playerSpawn = .init(x: 54 * 16, y: 23 * 16)
-            femaleSpawn = .init(x: 66 * 16, y: 26 * 16)
+        case .forest: spawn = SpawnConfig.forest
+        case .snow:   spawn = SpawnConfig.snow
+        case .ocean:  spawn = SpawnConfig.ocean
         }
 
-        let p = Mob(kind: .player, x: playerSpawn.x, y: playerSpawn.y, texture: mobTexture(kind: .player, dir: 0, walking: false, anim: 0))
+        let p = Mob(kind: .player, x: spawn.player.x, y: spawn.player.y, texture: mobTexture(kind: .player, dir: 0, walking: false, anim: 0))
         entityNode.addChild(p.node)
         player = p
 
-        let f = Mob(kind: .female, x: femaleSpawn.x, y: femaleSpawn.y, texture: mobTexture(kind: .female, dir: 0, walking: false, anim: 0))
+        let f = Mob(kind: .female, x: spawn.female.x, y: spawn.female.y, texture: mobTexture(kind: .female, dir: 0, walking: false, anim: 0))
         entityNode.addChild(f.node)
         females.append(f)
 
@@ -494,7 +357,7 @@ final class GenesisGameScene: SKScene {
 
         for female in females where female.canSpawnChild {
             if (Int(player.x) >> 4) == (Int(female.x) >> 4), (Int(player.y) >> 4) == (Int(female.y) >> 4) {
-                let baseBorn = Int.random(in: 1...4)
+                let baseBorn = Int.random(in: GameBalance.breedingBaseCount)
                 let born = baseBorn * breedingBirthMultiplier
                 for _ in 0..<born {
                     let kind: Mob.Kind = (selectedBiome == .ocean) ? .oceanMob : .forestMob
@@ -552,7 +415,6 @@ final class GenesisGameScene: SKScene {
         updateTopScoreIfNeeded()
         state = .gameOver
         inputVector = .zero
-        backLabel.isHidden = true
         overlayModel?.isGameOver = true
         overlayModel?.isPaused = false
         overlayModel?.gameOverText = "GAME OVER\nPopulation: \(Int(population))"
@@ -570,7 +432,6 @@ final class GenesisGameScene: SKScene {
         let textColor: SKColor = (selectedBiome == .snow) ? .black : .white
         populationLabel.fontColor = textColor
         timerLabel.fontColor = textColor
-        backLabel.fontColor = textColor
 
         overlayModel?.populationText = populationLabel.text ?? ""
         overlayModel?.timerText = timerLabel.text ?? ""
@@ -606,10 +467,6 @@ final class GenesisGameScene: SKScene {
         soundManager.playLoop("theme")
     }
 
-    func returnToMenuFromOverlay() {
-        showMenu()
-    }
-
     func restartGameFromOverlay() {
         guard state == .gameOver else { return }
         startGame(with: selectedBiome)
@@ -620,7 +477,7 @@ final class GenesisGameScene: SKScene {
     }
 
     private func normalizeBreedingBirthMultiplier(_ value: Int) -> Int {
-        min(100, max(1, value))
+        min(GameBalance.maxBreedingMultiplier, max(1, value))
     }
 
     func setBreedingBirthMultiplier(_ value: Int) {
@@ -877,11 +734,6 @@ final class GenesisGameScene: SKScene {
             if dir == 2 { return walking ? spriteTexture(tileX: 7, tileY: row) : spriteTexture(tileX: 6, tileY: row) }
             return walking && anim % 250 <= 125 ? spriteTexture(tileX: 11, tileY: row) : spriteTexture(tileX: 10, tileY: row)
 
-        case .predator:
-            if dir == 0 { return spriteTexture(tileX: 2, tileY: 8) }
-            if dir == 1 { return spriteTexture(tileX: 0, tileY: 8) }
-            if dir == 2 { return spriteTexture(tileX: 1, tileY: 8) }
-            return spriteTexture(tileX: 0, tileY: 8)
         }
     }
 
@@ -1054,50 +906,5 @@ final class GenesisGameScene: SKScene {
         return (width, height, result)
     }
 
-    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
-        guard let touch = touches.first else { return }
-        let pointInCamera = touch.location(in: cameraNode2D)
-
-        switch state {
-        case .menu:
-            if let nearest = biomeLabels.min(by: {
-                abs($0.value.position.y - pointInCamera.y) < abs($1.value.position.y - pointInCamera.y)
-            }), abs(nearest.value.position.y - pointInCamera.y) < 34 {
-                startGame(with: nearest.key)
-                return
-            }
-
-            if let tappedName = cameraNode2D
-                .nodes(at: pointInCamera)
-                .compactMap(\ .name)
-                .first(where: { $0.hasPrefix("biome_") }),
-               let biome = Biome.allCases.first(where: { "biome_\($0.title)" == tappedName }) {
-                startGame(with: biome)
-                return
-            }
-
-            for (biome, label) in biomeLabels where label.contains(pointInCamera) {
-                startGame(with: biome)
-                return
-            }
-        case .gameOver:
-            return
-        case .paused:
-            return
-        case .playing:
-            return
-        }
-    }
-
-    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
-        return
-    }
-
-    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
-        return
-    }
-
-    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
-        touchesEnded(touches, with: event)
-    }
 }
+

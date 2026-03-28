@@ -1,34 +1,6 @@
 import SwiftUI
 import SpriteKit
-import Combine
 import SwiftData
-
-private enum GenesisDayValueKey {
-    static let formatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter
-    }()
-
-    static func make(from date: Date) -> String {
-        formatter.string(from: Calendar.current.startOfDay(for: date))
-    }
-}
-
-final class GenesisOverlayModel: ObservableObject {
-    @Published var populationText: String = ""
-    @Published var timerText: String = ""
-    @Published var breedingMultiplierText: String = "x1"
-    @Published var topScoreText: String = "Top Score: 0"
-    @Published var biomeTitle: String = ""
-    @Published var gameOverText: String = ""
-    @Published var pauseText: String = "PAUSE"
-    @Published var isPlaying: Bool = false
-    @Published var isGameOver: Bool = false
-    @Published var isPaused: Bool = false
-}
 
 struct GenesisGameView: View {
     @Environment(\.dismiss) private var dismiss
@@ -101,7 +73,7 @@ struct GenesisGameView: View {
     }
 
     private func applyTodayBreedingMultiplier() {
-        let todayKey = GenesisDayValueKey.make(from: Date())
+        let todayKey = DayValueKey.make(from: Date())
         let todayValue = dayEntries
             .filter { $0.dateKey == todayKey }
             .map { $0.value }
