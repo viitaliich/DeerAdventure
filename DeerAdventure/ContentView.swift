@@ -19,10 +19,13 @@ struct ContentView: View {
         let year: Int
         let month: MonthItem
 
+        // ??? Why string
         var id: String { "\(year)-\(month.id)" }
     }
 
+    // ??? Refactor years - do not hardcode them
     private let years = [2026, 2027, 2028]
+    // ??? Maybe we have some built in struct for this? (Can we don't hardcode it?)
     private let months: [MonthItem] = [
         .init(name: "Jan", number: 1), .init(name: "Feb", number: 2), .init(name: "Mar", number: 3),
         .init(name: "Apr", number: 4), .init(name: "May", number: 5), .init(name: "Jun", number: 6),
@@ -36,6 +39,7 @@ struct ContentView: View {
         GridItem(.flexible(), spacing: 2)
     ]
 
+    // ??? Rename Genesis to something else
     @Namespace private var monthAnimation
     @Query private var dayEntries: [DayValueEntry]
     @State private var selectedMonth: MonthSelection?
@@ -48,13 +52,17 @@ struct ContentView: View {
     private var currentMonth: Int { Calendar.current.component(.month, from: Date()) }
 
     var body: some View {
+        // ??? Can we create some sort of Style and apply it to elements instead of manualy setup visual properties
+        // separately for ech component?
+        
+        // ??? Lots of .methods. Maybe refactor this to be more clear?
         ZStack {
             Color(.systemGray6).ignoresSafeArea()
 
             mainCalendarLayer
-                .blur(radius: showMonthDetail ? 6 : 0)
-                .opacity(showMonthDetail ? 0.55 : 1)
-                .allowsHitTesting(!showMonthDetail)
+                .blur(radius: showMonthDetail ? 6 : 0)  // ??? does it work?
+                .opacity(showMonthDetail ? 0.55 : 1)  // ??? does it work?
+                .allowsHitTesting(!showMonthDetail)  // ??? does it work?
 
             if let selection = selectedMonth, showMonthDetail {
                 MonthDetailOverlay(
@@ -65,18 +73,19 @@ struct ContentView: View {
                     initialWeekOfYear: launchWeekOfYear,
                     onInitialWeekHandled: { launchWeekOfYear = nil }
                 )
-                .zIndex(2)
+                .zIndex(2) // ??? do we need this
                 .transition(.opacity)
             }
         }
         .animation(.easeInOut(duration: 0.22), value: showMonthDetail)
+        // ??? This logic is strange
         .fullScreenCover(isPresented: $showGenesisGame) {
             GenesisGameView()
         }
         .sheet(isPresented: $showHelpPopup) {
             HelpPopupView()
-                .presentationDetents([.medium, .large])
-                .presentationDragIndicator(.visible)
+                .presentationDetents([.medium, .large]) // ??? Check other options
+                .presentationDragIndicator(.visible)    // change to hidden ???
                 .presentationBackground(.ultraThinMaterial)
         }
         .onAppear {
@@ -85,13 +94,16 @@ struct ContentView: View {
     }
 
     private var mainCalendarLayer: some View {
+        // ??? do we need alignment: .bottom
         ZStack(alignment: .bottom) {
+            // ??? refactor alignments and composition
             ScrollView {
                 VStack(spacing: 30) {
                     ForEach(years, id: \.self) { year in
                         VStack(alignment: .leading, spacing: 1) {
                             Text("\(year)")
                                 .font(.system(size: 40, weight: .bold, design: .default))
+                            // ??? red marking of current date must be refactored.
                                 .foregroundStyle(year == 2026 ? Color.red : Color.primary)
 
                             Divider()
@@ -116,12 +128,13 @@ struct ContentView: View {
                                     .opacity(selectedMonth?.id == monthID(for: month, year: year) && showMonthDetail ? 0 : 1)
                                 }
                             }
+                            // ??? research and refactor these
                             .frame(maxWidth: .infinity, alignment: .leading)
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                     }
 
-                    Color.clear.frame(height: 120)
+                    Color.clear.frame(height: 120)  // ??? WTF is this?
                 }
                 .padding(.horizontal, 12)
                 .padding(.top, 12)
@@ -143,11 +156,12 @@ struct ContentView: View {
             showMonthDetail = false
         }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-            if !showMonthDetail {
+        // ??? Why do we need this async
+//        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+//            if !showMonthDetail {
                 selectedMonth = nil
-            }
-        }
+//            }
+//        }
     }
 
     private func monthSpreadOffset(for month: MonthItem) -> CGSize {
@@ -167,21 +181,24 @@ struct ContentView: View {
         return CGSize(width: dx, height: dy)
     }
 
+    // ??? Why string? Maybe we can not use strings in the app at all?
     private func monthID(for month: MonthItem, year: Int) -> String {
         "\(year)-\(month.id)"
     }
 
+    // ??? Refactor. And why string again
     private func monthTotal(for month: Int, year: Int) -> Int {
         let calendar = Calendar.current
         return dayEntries.reduce(into: 0) { result, entry in
             guard let date = DayValueKey.parse(entry.dateKey) else { return }
             let comps = calendar.dateComponents([.year, .month], from: date)
             if comps.year == year, comps.month == month {
-                result += max(0, entry.value)
+                result += max(0, entry.value)   // ??? do we need max here? we can't have negative values
             }
         }
     }
 
+    // ??? Refactor?
     private func openCurrentWeekOnLaunch() {
         guard selectedMonth == nil, !showMonthDetail else { return }
 

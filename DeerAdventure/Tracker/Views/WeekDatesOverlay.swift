@@ -1,6 +1,5 @@
 import SwiftUI
 import SwiftData
-import AudioToolbox
 
 struct WeekDatesOverlay: View {
     let week: WeekInfo
@@ -125,9 +124,10 @@ struct WeekDatesOverlay: View {
             }
 
             if showConfetti {
-                ConfettiCelebrationView(trigger: confettiTrigger)
-                    .allowsHitTesting(false)
-                    .transition(.opacity)
+                ConfettiView(trigger: confettiTrigger, onFinished: {
+                    showConfetti = false
+                })
+                .transition(.opacity)
             }
 
             BottomLeftButtonContainer {
@@ -213,18 +213,6 @@ struct WeekDatesOverlay: View {
     private func fireConfetti() {
         confettiTrigger += 1
         showConfetti = true
-        playCelebrationFeedback()
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) {
-            showConfetti = false
-        }
-    }
-
-    private func playCelebrationFeedback() {
-        let haptic = UIImpactFeedbackGenerator(style: .light)
-        haptic.prepare()
-        haptic.impactOccurred(intensity: 0.7)
-
-        AudioServicesPlaySystemSound(1025)
+        AppHaptics.playCelebration()
     }
 }
