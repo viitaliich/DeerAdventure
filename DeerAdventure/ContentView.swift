@@ -80,7 +80,7 @@ struct ContentView: View {
         .animation(.easeInOut(duration: 0.22), value: showMonthDetail)
         // ??? This logic is strange
         .fullScreenCover(isPresented: $showGenesisGame) {
-            GenesisGameView()
+            GameViewV2()
         }
         .sheet(isPresented: $showHelpPopup) {
             HelpPopupView()
