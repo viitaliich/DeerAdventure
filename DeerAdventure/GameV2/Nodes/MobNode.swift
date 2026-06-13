@@ -1,15 +1,11 @@
 import SpriteKit
 
-final class MobNode: SKSpriteNode {
+final class MobNode: NpcNode {
 
-    private static let size = CGSize(width: 20, height: 20)
-    private static let speed: CGFloat = 35
-
-    private var directionTick = 0
-    private var currentDirection = CGVector.zero
+    override var wanderSpeed: CGFloat { 35 }
 
     init() {
-        super.init(texture: nil, color: .systemGreen, size: Self.size)
+        super.init(texture: nil, color: .systemGreen, size: CGSize(width: 20, height: 20))
         setup()
     }
 
@@ -28,30 +24,5 @@ final class MobNode: SKSpriteNode {
         physicsBody?.contactTestBitMask = PhysicsCategory.none
         physicsBody?.allowsRotation     = false
         physicsBody?.linearDamping      = 10
-    }
-
-    func updateAI() {
-        directionTick += 1
-        if directionTick >= 40 {
-            directionTick = 0
-            currentDirection = CGVector(
-                dx: CGFloat(Int.random(in: -1...1)),
-                dy: CGFloat(Int.random(in: -1...1))
-            )
-        }
-
-        let len = hypot(currentDirection.dx, currentDirection.dy)
-        guard len > 0.0001 else {
-            physicsBody?.velocity = .zero
-            return
-        }
-        physicsBody?.velocity = CGVector(
-            dx: currentDirection.dx / len * Self.speed,
-            dy: currentDirection.dy / len * Self.speed
-        )
-
-        if abs(currentDirection.dx) > abs(currentDirection.dy) {
-            xScale = currentDirection.dx < 0 ? -1 : 1
-        }
     }
 }

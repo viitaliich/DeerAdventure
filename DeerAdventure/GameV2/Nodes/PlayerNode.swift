@@ -27,15 +27,28 @@ final class PlayerNode: SKSpriteNode {
     }
 
     // TODO: maybe make texture management in Base class?
-    func updateDirection(_ input: CGVector) {
+    func move(input: CGVector) {
+        let length = hypot(input.dx, input.dy)
+        guard length > 0.0001 else {
+            physicsBody?.velocity = .zero
+            setIdle()
+            return
+        }
+        physicsBody?.velocity = CGVector(
+            dx: input.dx / length * 90,
+            dy: input.dy / length * 90
+        )
+        updateDirection(input)
+    }
+
+    private func updateDirection(_ input: CGVector) {
         // TODO: переключать текстуру/анимацию по направлению
-        // Зеркалим спрайт для движения влево
         if abs(input.dx) > abs(input.dy) {
             xScale = input.dx < 0 ? -1 : 1
         }
     }
 
-    func setIdle() {
+    private func setIdle() {
         // TODO: переключить на idle анимацию
     }
 }

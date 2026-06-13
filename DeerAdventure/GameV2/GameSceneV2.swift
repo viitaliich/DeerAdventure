@@ -44,7 +44,7 @@ final class GameSceneV2: SKScene {
     private var state: State = .menu
     private var selectedBiome: Biome = .forest
 
-    private var population: Double = 2
+    private var population: Int = 2
     private var breedingBirthMultiplier: Int = 1
     private var topScore: Int = UserDefaults.standard.integer(forKey: GameSceneV2.topScoreDefaultsKey)
     private var timeRemaining: Int = GameBalance.gameDuration
@@ -80,6 +80,7 @@ final class GameSceneV2: SKScene {
     // MARK: - Game lifecycle
 
     func startGame(with biome: Biome) {
+        // TODO: split functionality to smaller methods.
         selectedBiome = biome
         state = .playing
         stateTick = 0
@@ -129,7 +130,7 @@ final class GameSceneV2: SKScene {
     }
 
     private func spawnInitialEntities() {
-        let spawnPos = spawnPoint(named: "playerSpawn") ?? CGPoint(x: 200, y: 200)  // ??? maybe remove default values?
+        let spawnPos = spawnPoint(named: "playerSpawn") ?? CGPoint(x: 200, y: 200)  // TODO: maybe remove default values?
         let femalePos = spawnPoint(named: "femaleSpawn") ?? CGPoint(x: 250, y: 250)
 
         let p = PlayerNode()
@@ -183,21 +184,8 @@ final class GameSceneV2: SKScene {
         updateHUD()
     }
 
-    // TODO: maybe move this to PlayerNode ?
     private func updatePlayerMovement() {
-        guard let player = playerNode else { return }
-        let length = hypot(inputVector.dx, inputVector.dy)
-        if length > 0.0001 {
-            let speed: CGFloat = 90
-            player.physicsBody?.velocity = CGVector(
-                dx: inputVector.dx / length * speed,
-                dy: inputVector.dy / length * speed
-            )
-            player.updateDirection(inputVector)
-        } else {
-            player.physicsBody?.velocity = .zero
-            player.setIdle()
-        }
+        playerNode?.move(input: inputVector)
     }
 
     private func updateEntityMovement() {
@@ -221,7 +209,6 @@ final class GameSceneV2: SKScene {
 
     // MARK: - Breeding
 
-    // TODO: maybe move this to Player/Female node?
     private func handleBreeding(female: FemaleNode) {
         guard female.canBreed else { return }
         female.canBreed = false
@@ -235,7 +222,7 @@ final class GameSceneV2: SKScene {
             worldNode.addChild(mob)
             mobs.append(mob)
         }
-        population += Double(born)      // TODO: why double?
+        population += born
 
         let femaleCount = Int.random(in: 1...4)
         for _ in 0..<femaleCount {
@@ -266,14 +253,14 @@ final class GameSceneV2: SKScene {
         inputVector = .zero
         overlayModel?.isGameOver = true
         overlayModel?.isPaused = false
-        overlayModel?.gameOverText = "GAME OVER\nPopulation: \(Int(population))"
+        overlayModel?.gameOverText = "GAME OVER\nPopulation: \(population)"
         overlayModel?.topScoreText = "Top Score: \(topScore)"
         soundManager.stopAllLoops()
         soundManager.playOneShot("gameover", volume: 1.0)
     }
 
     private func updateTopScoreIfNeeded() {
-        let current = Int(floor(population))        // TODO: why double?
+        let current = population
         guard current > topScore else { return }
         topScore = current
         UserDefaults.standard.set(topScore, forKey: Self.topScoreDefaultsKey)
@@ -282,7 +269,7 @@ final class GameSceneV2: SKScene {
     // MARK: - HUD
 
     private func updateHUD() {
-        overlayModel?.populationText = "Population: \(Int(floor(population)))"
+        overlayModel?.populationText = "Population: \(population)"
         let minutes = max(0, timeRemaining) / 60
         let seconds = max(0, timeRemaining) % 60
         overlayModel?.timerText = String(format: "Time: %d:%02d", minutes, seconds)
