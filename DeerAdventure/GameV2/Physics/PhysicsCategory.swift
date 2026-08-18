@@ -7,4 +7,5 @@ struct PhysicsCategory {
     static let mob:     UInt32 = 0b00100
     static let terrain: UInt32 = 0b01000
     static let world:   UInt32 = 0b10000
+    static let water:   UInt32 = 0b100000
 }

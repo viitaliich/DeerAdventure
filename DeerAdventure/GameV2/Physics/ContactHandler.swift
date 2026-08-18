@@ -2,6 +2,7 @@ import SpriteKit
 
 enum ContactType {
     case playerFemale
+    case playerWater
     case other
 }
 
@@ -10,6 +11,9 @@ struct ContactHandler {
         let masks = contact.bodyA.categoryBitMask | contact.bodyB.categoryBitMask
         if masks == PhysicsCategory.player | PhysicsCategory.female {
             return .playerFemale
+        }
+        if masks == PhysicsCategory.player | PhysicsCategory.water {
+            return .playerWater
         }
         return .other
     }

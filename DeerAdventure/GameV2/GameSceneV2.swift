@@ -38,6 +38,7 @@ final class GameSceneV2: SKScene {
     private var playerNode: PlayerNode?
     private var females: [FemaleNode] = []
     private var mobs: [MobNode] = []
+    private var waters: [WaterNode] = []
 
     // MARK: - State
 
@@ -108,6 +109,7 @@ final class GameSceneV2: SKScene {
         levelNode = nil
         females.removeAll()
         mobs.removeAll()
+        waters.removeAll()
         playerNode = nil
     }
 
@@ -127,6 +129,16 @@ final class GameSceneV2: SKScene {
         }
         worldNode.addChild(container)
         levelNode = container
+    }
+
+    // Ponds sit inside SKReferenceNodes, which fill themselves in when they are
+    // added to the scene, so the tree is not walked at load time. Collected once
+    // on first use and cached for the rest of the level.
+    private func collectWaterNodes(in node: SKNode) {
+        for child in node.children {
+            if let water = child as? WaterNode { waters.append(water) }
+            collectWaterNodes(in: child)
+        }
     }
 
     private func spawnInitialEntities() {
@@ -176,6 +188,9 @@ final class GameSceneV2: SKScene {
         updateEntityMovement()
         updateCamera()
 
+        // Ripples while wading. Every tick would bury the surface in rings.
+        if stateTick % 18 == 0 { updateWading() }
+
         if stateTick % 60 == 0 {
             timeRemaining -= 1
             if timeRemaining <= 0 { showGameOver() }
@@ -194,6 +209,18 @@ final class GameSceneV2: SKScene {
         }
         for mob in mobs {
             mob.updateAI()
+        }
+    }
+
+    private func updateWading() {
+        guard let player = playerNode, inputVector != .zero else { return }
+
+        if waters.isEmpty, let level = levelNode { collectWaterNodes(in: level) }
+
+        for water in waters {
+            let pointInWater = water.convert(player.position, from: worldNode)
+            guard water.contains(surfacePoint: pointInWater) else { continue }
+            water.splash(at: pointInWater)
         }
     }
 
@@ -315,8 +342,18 @@ final class GameSceneV2: SKScene {
 
 extension GameSceneV2: SKPhysicsContactDelegate {
     func didBegin(_ contact: SKPhysicsContact) {
-        guard ContactHandler.classify(contact) == .playerFemale else { return }
-        guard let femaleNode = ContactHandler.node(in: contact, withCategory: PhysicsCategory.female) as? FemaleNode else { return }
-        handleBreeding(female: femaleNode)
+        switch ContactHandler.classify(contact) {
+        case .playerFemale:
+            guard let femaleNode = ContactHandler.node(in: contact, withCategory: PhysicsCategory.female) as? FemaleNode else { return }
+            handleBreeding(female: femaleNode)
+
+        case .playerWater:
+            guard let water = ContactHandler.node(in: contact, withCategory: PhysicsCategory.water) as? WaterNode,
+                  let player = playerNode else { return }
+            water.splash(at: water.convert(player.position, from: worldNode))
+
+        case .other:
+            break
+        }
     }
 }
